@@ -5,6 +5,11 @@ const JOB_CARD_SELECTOR = '[data-view-name="job-search-job-card"]'
 // State
 
 let blockedCompanies = new Set()
+let jobsObserver = null
+
+function isJobsPage() {
+  return location.pathname.startsWith('/jobs')
+}
 
 // Storage
 
@@ -228,7 +233,7 @@ function scanJobCards() {
 
 // Sync blocked list when popup changes it.
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'sync' && changes.blockedCompanies) {
+  if (namespace === 'sync' && changes.blockedCompanies && isJobsPage()) {
     blockedCompanies = new Set(changes.blockedCompanies.newValue || [])
 
     let hiddenAny = false
@@ -255,20 +260,78 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 // Initialization
 
+function teardownJobsPage() {
+  if (jobsObserver) {
+    jobsObserver.disconnect()
+    jobsObserver = null
+  }
+}
+
 async function initialize() {
+  if (!isJobsPage()) return
+
+  teardownJobsPage()
+
   await loadBlockedCompanies()
 
   scanJobCards()
 
-  const observer = new MutationObserver(scanJobCards)
+  jobsObserver = new MutationObserver(scanJobCards)
 
-  const jobListContainer = document.body
+  jobsObserver.observe(document.body, { childList: true, subtree: true })
+}
 
-  observer.observe(jobListContainer, { childList: true, subtree: true })
+function scheduleInitialize() {
+  setTimeout(() => initialize(), 0)
+}
+
+function setupNavigationListener() {
+  if (typeof navigation !== 'undefined' && navigation.addEventListener) {
+    navigation.addEventListener('navigate', (event) => {
+      const destinationUrl = new URL(event.destination.url)
+
+      if (destinationUrl.pathname.startsWith('/jobs')) {
+        scheduleInitialize()
+      } else if (isJobsPage()) {
+        teardownJobsPage()
+      }
+    })
+    return
+  }
+
+  const onUrlChange = () => {
+    if (isJobsPage()) {
+      scheduleInitialize()
+    } else {
+      teardownJobsPage()
+    }
+  }
+
+  window.addEventListener('popstate', onUrlChange)
+
+  const originalPushState = history.pushState
+  const originalReplaceState = history.replaceState
+
+  history.pushState = function (...args) {
+    originalPushState.apply(this, args)
+    onUrlChange()
+  }
+  history.replaceState = function (...args) {
+    originalReplaceState.apply(this, args)
+    onUrlChange()
+  }
+}
+
+function onLoad() {
+  setupNavigationListener()
+
+  if (isJobsPage()) {
+    initialize()
+  }
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initialize)
+  document.addEventListener('DOMContentLoaded', onLoad)
 } else {
-  initialize()
+  onLoad()
 }

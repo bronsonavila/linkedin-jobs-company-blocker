@@ -6,7 +6,7 @@
   "permissions": ["storage"],
   "content_scripts": [
     {
-      "matches": ["*://www.linkedin.com/jobs/*"],
+      "matches": ["*://www.linkedin.com/*"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
